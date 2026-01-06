@@ -32,17 +32,17 @@ const { t } = useI18n();
 const createPlayerStorage = (romId: number, platformSlug: string) => ({
   initialSaveId: useLocalStorage(
     `player:${romId}:initial_save_id`,
-    null as string | null,
+    null as string | null
   ),
   initialStateId: useLocalStorage(
     `player:${romId}:initial_state_id`,
-    null as string | null,
+    null as string | null
   ),
   disc: useLocalStorage(`player:${romId}:disc`, null as string | null),
   core: useLocalStorage(`player:${platformSlug}:core`, null as string | null),
   biosId: useLocalStorage(
     `player:${platformSlug}:bios_id`,
-    null as string | null,
+    null as string | null
   ),
 });
 
@@ -146,7 +146,7 @@ async function saveAndExit() {
     // CRITICAL: The game must be RUNNING for screenshot to work!
     // We paused it in showPrompt(), so we need to resume it first
     console.info(
-      "Resuming game before screenshot (emujs expects running game)",
+      "Resuming game before screenshot (emujs expects running game)"
     );
     if (window.EJS_emulator.paused) {
       window.EJS_emulator.play();
@@ -171,7 +171,7 @@ async function saveAndExit() {
 
 async function uploadState(
   stateFile: ArrayBuffer,
-  screenshotFile: ArrayBuffer,
+  screenshotFile: ArrayBuffer
 ) {
   if (!romRef.value) return;
   const filename = `${romRef.value.fs_name_no_ext.trim()} [${new Date()
@@ -465,7 +465,7 @@ async function boot() {
       formData.append(
         "screenshotFile",
         new Blob([screenshotFile], { type: "image/png" }),
-        "screenshot.png",
+        "screenshot.png"
       );
 
       await api.post("/states", formData, {
@@ -492,7 +492,7 @@ async function boot() {
       "saveFile:",
       saveFile?.byteLength,
       "screenshotFile:",
-      screenshotFile?.byteLength,
+      screenshotFile?.byteLength
     );
 
     try {
@@ -616,7 +616,9 @@ async function boot() {
 
   const { EJS_NETPLAY_ENABLED } = configStore.config;
   const EMULATORJS_VERSION = EJS_NETPLAY_ENABLED ? "nightly" : "4.2.3";
-  const LOCAL_PATH = "/assets/emulatorjs/data";
+  const DEFAULT_LOCAL_PATH = "/assets/emulatorjs/data";
+  const CONFIGURED_LOCAL_PATH =
+    configStore.config.EJS_DATA_PATH?.trim() || DEFAULT_LOCAL_PATH;
   const CDN_PATH = `https://cdn.emulatorjs.org/${EMULATORJS_VERSION}/data`;
 
   function loadScript(src: string): Promise<void> {
@@ -630,9 +632,15 @@ async function boot() {
     });
   }
 
-  async function attemptLoad(label: "local" | "cdn") {
-    const path = label === "local" ? LOCAL_PATH : CDN_PATH;
-    loaderStatus.value = label === "local" ? "loading-local" : "loading-cdn";
+  async function attemptLoad(label: "configured" | "default-local" | "cdn") {
+    const path =
+      label === "configured"
+        ? CONFIGURED_LOCAL_PATH
+        : label === "default-local"
+        ? DEFAULT_LOCAL_PATH
+        : CDN_PATH;
+
+    loaderStatus.value = label === "cdn" ? "loading-cdn" : "loading-local";
 
     window.EJS_pathtodata = path;
     await loadScript(`${path}/loader.js`);
@@ -640,10 +648,24 @@ async function boot() {
 
   try {
     try {
-      await attemptLoad(EJS_NETPLAY_ENABLED ? "cdn" : "local");
+      // Prefer configured/local assets first so custom EmulatorJS builds are used.
+      await attemptLoad("configured");
     } catch (e) {
-      console.warn("[Play] Local loader failed, trying CDN", e);
-      await attemptLoad(EJS_NETPLAY_ENABLED ? "local" : "cdn");
+      if (CONFIGURED_LOCAL_PATH !== DEFAULT_LOCAL_PATH) {
+        try {
+          console.warn(
+            "[Play] Configured loader failed, trying default local",
+            e
+          );
+          await attemptLoad("default-local");
+        } catch (e2) {
+          console.warn("[Play] Local loader failed, trying CDN", e2);
+          await attemptLoad("cdn");
+        }
+      } else {
+        console.warn("[Play] Local loader failed, trying CDN", e);
+        await attemptLoad("cdn");
+      }
     }
     // Wait for emulator bootstrap
     const startDeadline = Date.now() + 8000; // 8s

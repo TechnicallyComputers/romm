@@ -10,6 +10,11 @@ services:
     image: rommapp/romm:latest
     container_name: romm
     restart: unless-stopped
+    extra_hosts:
+      # Needed on Linux if you want the container to reach a service running on the Docker host.
+      # Used by the nginx proxy rule for /assets/emulatorjs/* (docker/nginx/templates/default.conf.template).
+      - "host.docker.internal:host-gateway" # Needed for Docker setups
+      - "host.containers.internal:host-gateway" # needed for some Podman setups.
     environment:
       - DB_HOST=romm-db
       - DB_NAME=romm # Should match MARIADB_DATABASE in mariadb

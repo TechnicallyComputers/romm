@@ -44,8 +44,8 @@ const fullScreenOnPlay = useLocalStorage("emulation.fullScreenOnPlay", true);
 const compatibleStates = computed(
   () =>
     rom.value?.user_states.filter(
-      (s) => !s.emulator || s.emulator === selectedCore.value,
-    ) ?? [],
+      (s) => !s.emulator || s.emulator === selectedCore.value
+    ) ?? []
 );
 
 async function onPlay() {
@@ -64,7 +64,9 @@ async function onPlay() {
 
   const { EJS_NETPLAY_ENABLED } = configStore.config;
   const EMULATORJS_VERSION = EJS_NETPLAY_ENABLED ? "nightly" : "4.2.3";
-  const LOCAL_PATH = "/assets/emulatorjs/data";
+  const DEFAULT_LOCAL_PATH = "/assets/emulatorjs/data";
+  const CONFIGURED_PATH =
+    configStore.config.EJS_DATA_PATH?.trim() || DEFAULT_LOCAL_PATH;
   const CDN_PATH = `https://cdn.emulatorjs.org/${EMULATORJS_VERSION}/data`;
 
   function loadScript(src: string): Promise<void> {
@@ -85,10 +87,24 @@ async function onPlay() {
 
   try {
     try {
-      await attemptLoad(EJS_NETPLAY_ENABLED ? CDN_PATH : LOCAL_PATH);
+      // Prefer configured/local assets first so custom EmulatorJS builds are used.
+      await attemptLoad(CONFIGURED_PATH);
     } catch (e) {
-      console.warn("[Play] Local loader failed, trying CDN", e);
-      await attemptLoad(EJS_NETPLAY_ENABLED ? LOCAL_PATH : CDN_PATH);
+      if (CONFIGURED_PATH !== DEFAULT_LOCAL_PATH) {
+        try {
+          console.warn(
+            "[Play] Configured loader failed, trying default local",
+            e
+          );
+          await attemptLoad(DEFAULT_LOCAL_PATH);
+        } catch (e2) {
+          console.warn("[Play] Local loader failed, trying CDN", e2);
+          await attemptLoad(CDN_PATH);
+        }
+      } else {
+        console.warn("[Play] Local loader failed, trying CDN", e);
+        await attemptLoad(CDN_PATH);
+      }
     }
     playing.value = true;
     fullScreen.value = fullScreenOnPlay.value;
@@ -110,7 +126,7 @@ function selectSave(save: SaveSchema) {
   }
   localStorage.setItem(
     `player:${rom.value?.platform_slug}:save_id`,
-    save.id.toString(),
+    save.id.toString()
   );
   // Switch to saves tab
   isSavesTabSelected.value = true;
@@ -130,7 +146,7 @@ function selectState(state: StateSchema) {
   }
   localStorage.setItem(
     `player:${rom.value?.platform_slug}:state_id`,
-    state.id.toString(),
+    state.id.toString()
   );
   // Switch to states tab
   isSavesTabSelected.value = false;
@@ -175,7 +191,7 @@ onMounted(async () => {
 
   // Determine default tab and selection (mutually exclusive)
   const compatibleStates = rom.value.user_states.filter(
-    (s) => !s.emulator || s.emulator === supportedCores.value[0],
+    (s) => !s.emulator || s.emulator === supportedCores.value[0]
   );
 
   if (compatibleStates.length > 0) {
@@ -203,7 +219,7 @@ onMounted(async () => {
   }
 
   const storedCore = localStorage.getItem(
-    `player:${rom.value.platform_slug}:core`,
+    `player:${rom.value.platform_slug}:core`
   );
   if (storedCore) {
     selectedCore.value = storedCore;
@@ -213,7 +229,7 @@ onMounted(async () => {
   }
 
   const storedBiosID = localStorage.getItem(
-    `player:${rom.value.platform_slug}:bios_id`,
+    `player:${rom.value.platform_slug}:bios_id`
   );
   if (storedBiosID) {
     selectedFirmware.value =
@@ -343,8 +359,8 @@ function openCacheDialog() {
                     rom.user_saves.length == 0
                       ? t("play.no-saves-available")
                       : selectedSave
-                        ? t("play.change-save")
-                        : t("play.select-save")
+                      ? t("play.change-save")
+                      : t("play.select-save")
                   }}
                 </v-btn>
               </div>
@@ -383,19 +399,19 @@ function openCacheDialog() {
                   "
                   :disabled="
                     !rom.user_states.some(
-                      (s) => !s.emulator || s.emulator === selectedCore,
+                      (s) => !s.emulator || s.emulator === selectedCore
                     )
                   "
                   @click="openStateDialog"
                 >
                   {{
                     !rom.user_states.some(
-                      (s) => !s.emulator || s.emulator === selectedCore,
+                      (s) => !s.emulator || s.emulator === selectedCore
                     )
                       ? t("play.no-states-available")
                       : selectedState
-                        ? t("play.change-state")
-                        : t("play.select-state")
+                      ? t("play.change-state")
+                      : t("play.select-state")
                   }}
                 </v-btn>
               </div>
@@ -624,9 +640,7 @@ function openCacheDialog() {
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.15);
   transform: translate(-50%, -50%);
-  transition:
-    width 0.5s,
-    height 0.5s;
+  transition: width 0.5s, height 0.5s;
 }
 
 .play-button:hover::before {
