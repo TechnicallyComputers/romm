@@ -99,6 +99,7 @@ if not IS_PYTEST_RUN and not DISABLE_CSRF_PROTECTION:
         exempt_urls=[
             re.compile(r"^/api/token.*"),
             re.compile(r"^/api/sfu/token.*"),
+            re.compile(r"^/api/sfu/internal/.*"),
             re.compile(r"^/ws"),
             re.compile(r"^/netplay"),
         ],
