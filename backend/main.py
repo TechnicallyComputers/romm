@@ -39,6 +39,7 @@ from endpoints import (
     saves,
     screenshots,
     search,
+    sfu,
     states,
     stats,
     tasks,
@@ -97,6 +98,8 @@ if not IS_PYTEST_RUN and not DISABLE_CSRF_PROTECTION:
         secret=ROMM_AUTH_SECRET_KEY,
         exempt_urls=[
             re.compile(r"^/api/token.*"),
+            re.compile(r"^/api/sfu/token.*"),
+            re.compile(r"^/api/sfu/internal/.*"),
             re.compile(r"^/ws"),
             re.compile(r"^/netplay"),
         ],
@@ -137,6 +140,7 @@ app.include_router(firmware.router, prefix="/api")
 app.include_router(collections.router, prefix="/api")
 app.include_router(gamelist.router, prefix="/api")
 app.include_router(netplay.router, prefix="/api")
+app.include_router(sfu.router, prefix="/api")
 
 app.mount("/ws", socket_handler.socket_app)
 app.mount("/netplay", netplay_socket_handler.socket_app)
