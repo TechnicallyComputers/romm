@@ -440,11 +440,22 @@ async function boot() {
     EJS_CACHE_LIMIT,
     EJS_DISABLE_AUTO_UNLOAD,
     EJS_DISABLE_BATCH_BOOTUP,
+    EJS_NETPLAY_ENABLED,
+    EJS_NETPLAY_ICE_SERVERS,
   } = configStore.config;
   window.EJS_DEBUG_XX = EJS_DEBUG;
   window.EJS_disableAutoUnload = EJS_DISABLE_AUTO_UNLOAD;
   window.EJS_disableBatchBootup = EJS_DISABLE_BATCH_BOOTUP;
   if (EJS_CACHE_LIMIT !== null) window.EJS_CacheLimit = EJS_CACHE_LIMIT;
+
+  // EmulatorJS-SFU expects `window.EJS_netplayUrl`.
+  // Keep this at the origin so Socket.IO uses the default namespace.
+  window.EJS_netplayUrl = EJS_NETPLAY_ENABLED ? window.location.origin : "";
+  // Compatibility with other EmulatorJS builds
+  window.EJS_netplayServer = window.EJS_netplayUrl;
+  window.EJS_netplayICEServers = EJS_NETPLAY_ENABLED
+    ? EJS_NETPLAY_ICE_SERVERS
+    : [];
 
   // Set a valid game name (affects per-game settings keys)
   window.EJS_gameName = rom.fs_name_no_tags
@@ -614,12 +625,14 @@ async function boot() {
   // Allow route transition animation to settle
   await new Promise((r) => setTimeout(r, 50));
 
-  const { EJS_NETPLAY_ENABLED } = configStore.config;
   const EMULATORJS_VERSION = EJS_NETPLAY_ENABLED ? "nightly" : "4.2.3";
-  const DEFAULT_LOCAL_PATH = "/assets/emulatorjs/data";
-  const CONFIGURED_LOCAL_PATH =
-    configStore.config.EJS_DATA_PATH?.trim() || DEFAULT_LOCAL_PATH;
+  const LOCAL_PATH = "/assets/emulatorjs-sfu/data";
   const CDN_PATH = `https://cdn.emulatorjs.org/${EMULATORJS_VERSION}/data`;
+  // const CDN_PATH = `https://github.com/TechnicallyComputers/EmulatorJS-SFU/data`; // temporarily rewrite CDN path to EmulatorJS-SFU repo, latest version only.
+
+  // Hard-pin the CDN cores folder used by EmulatorJS core fallback downloads.
+  // This is intentionally independent from the SFU fork's internal version.
+  (window as any).EJS_CDN_CORES_VERSION = "nightly";
 
   function loadScript(src: string): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -643,26 +656,169 @@ async function boot() {
     loaderStatus.value = label === "cdn" ? "loading-cdn" : "loading-local";
 
     window.EJS_pathtodata = path;
+
+    /*    // EmulatorJS-SFU netplay requires a browser mediasoup-client bundle.
+    // Don't rely on RomM's netplay flag here; if a hybrid-only loader is used, it
+    // will fail SFU init unless this is present.
+    if (!((window as any).mediasoupClient || (window as any).mediasoup)) {
+      try {
+        // Always prefer the locally mounted bundle.
+        const mediasoupPath = `${LOCAL_PATH}/vendor/mediasoup-client-umd.js`;
+        console.info(
+          "[ConsolePlay] Preloading mediasoup-client:",
+          mediasoupPath
+        );
+        await loadScript(mediasoupPath);
+
+        if (!((window as any).mediasoupClient || (window as any).mediasoup)) {
+          console.warn(
+            "[ConsolePlay] mediasoup-client script loaded but global not found; SFU netplay may fail"
+          );
+        }
+      } catch (e) {
+        // Keep this as a warning (not fatal) so non-netplay sessions still work.
+        console.warn(
+          "[ConsolePlay] mediasoup-client bundle missing; SFU netplay may fail",
+          e
+        );
+      }
+    }  */
+
     await loadScript(`${path}/loader.js`);
   }
 
-  try {
+  async function ensureSfuToken() {
     try {
-      // Prefer configured/local assets first so custom EmulatorJS builds are used.
-      await attemptLoad("configured");
-    } catch (e) {
-      if (CONFIGURED_LOCAL_PATH !== DEFAULT_LOCAL_PATH) {
-        try {
-          console.warn(
-            "[Play] Configured loader failed, trying default local",
-            e
-          );
-          await attemptLoad("default-local");
-        } catch (e2) {
-          console.warn("[Play] Local loader failed, trying CDN", e2);
-          await attemptLoad("cdn");
+      const { data } = await api.post("/sfu/token");
+      const token = data?.token;
+      if (typeof token !== "string" || token.length === 0) {
+        throw new Error("Missing token in /api/sfu/token response");
+      }
+
+      window.EJS_netplayToken = token;
+
+      // Do NOT place the token into `EJS_netplayServer` URL: EmulatorJS builds
+      // commonly build the room list endpoint via string concatenation
+      // (netplayUrl + "/list"), which breaks when a query string is present.
+      // Store the token in a cookie; Socket.IO will send it in the handshake.
+      const secure = window.location.protocol === "https:" ? "; Secure" : "";
+      document.cookie = `romm_sfu_token=${encodeURIComponent(
+        token
+      )}; Max-Age=30; Path=/; SameSite=Lax${secure}`;
+    } catch (err) {
+      console.warn(
+        "[ConsolePlay] Failed to mint SFU token; authenticated netplay may fail",
+        err
+      );
+    }
+  }
+
+  function normalizeIceServerUrls(urls: any): string[] {
+    if (typeof urls === "string") return [urls];
+    if (Array.isArray(urls)) return urls.filter((u) => typeof u === "string");
+    return [];
+  }
+
+  function iceServerKey(server: any): string {
+    const urls = normalizeIceServerUrls(server?.urls)
+      .map((u) => u.trim())
+      .filter(Boolean)
+      .sort();
+    const username =
+      typeof server?.username === "string" ? server.username : "";
+    const credential =
+      typeof server?.credential === "string" ? server.credential : "";
+    return JSON.stringify({ urls, username, credential });
+  }
+
+  function mergeIceServers(preferred: any[], fallback: any[]): any[] {
+    const out: any[] = [];
+    const seen = new Set<string>();
+    for (const list of [preferred, fallback]) {
+      for (const s of Array.isArray(list) ? list : []) {
+        const urls = normalizeIceServerUrls(s?.urls);
+        if (urls.length === 0) continue;
+        const key = iceServerKey(s);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(s);
+      }
+    }
+    return out;
+  }
+
+  async function tryFetchPreferredIceServers() {
+    const debugEnabled = Boolean(
+      (window as any).EJS_DEBUG_XX || (window as any).EJS_DEBUG
+    );
+    try {
+      const baseUrl = String(window.EJS_netplayUrl || "").replace(/\/+$/, "");
+      if (!baseUrl) return;
+
+      const token = (window as any).EJS_netplayToken;
+      if (typeof token !== "string" || token.length === 0) return;
+
+      const resp = await fetch(`${baseUrl}/ice`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!resp.ok) {
+        throw new Error(`GET /ice failed (${resp.status})`);
+      }
+
+      const data = await resp.json();
+      const preferred = Array.isArray(data?.iceServers) ? data.iceServers : [];
+      const fallback = Array.isArray(EJS_NETPLAY_ICE_SERVERS)
+        ? EJS_NETPLAY_ICE_SERVERS
+        : [];
+
+      // Preferred first (node-local), config.yml list appended as fallback.
+      const merged = mergeIceServers(preferred, fallback);
+      if (merged.length > 0) {
+        window.EJS_netplayICEServers = merged;
+        if (debugEnabled) {
+          console.info("[ConsolePlay] ICE servers merged", {
+            preferred: preferred.length,
+            fallback: fallback.length,
+            merged: merged.length,
+            nodeId: data?.nodeId,
+            sfuUrl: data?.url,
+          });
         }
-      } else {
+      }
+    } catch (err) {
+      if (debugEnabled) {
+        console.warn(
+          "[ConsolePlay] Failed to fetch SFU /ice; using config.yml ICE servers only",
+          err
+        );
+      }
+    }
+  }
+
+  try {
+    if (EJS_NETPLAY_ENABLED) {
+      await ensureSfuToken();
+      await tryFetchPreferredIceServers();
+      if (sfuTokenRefreshTimer !== null) {
+        window.clearInterval(sfuTokenRefreshTimer);
+      }
+      // Refresh slightly before TTL to keep reconnects working.
+      sfuTokenRefreshTimer = window.setInterval(() => {
+        ensureSfuToken();
+      }, 20000);
+    }
+
+    if (EJS_NETPLAY_ENABLED) {
+      // Netplay depends on our locally mounted EmulatorJS + SFU proxies.
+      await attemptLoad("local");
+    } else {
+      try {
+        await attemptLoad("local");
+      } catch (e) {
         console.warn("[Play] Local loader failed, trying CDN", e);
         await attemptLoad("cdn");
       }
@@ -691,6 +847,7 @@ async function boot() {
 let detachKey: (() => void) | null = null;
 let detachPad: (() => void) | null = null;
 let booted = false;
+let sfuTokenRefreshTimer: number | null = null;
 
 onMounted(async () => {
   // Guard against duplicate mounts
@@ -703,6 +860,10 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  if (sfuTokenRefreshTimer !== null) {
+    window.clearInterval(sfuTokenRefreshTimer);
+    sfuTokenRefreshTimer = null;
+  }
   window.EJS_emulator?.callEvent?.("exit");
   detachKey?.();
   detachPad?.();

@@ -17,6 +17,9 @@ from config import (
     DB_QUERY_JSON,
     DB_USER,
     LIBRARY_BASE_PATH,
+    REDIS_PASSWORD,
+    REDIS_USERNAME,
+    IS_PYTEST_RUN,
     ROMM_BASE_PATH,
     ROMM_DB_DRIVER,
 )

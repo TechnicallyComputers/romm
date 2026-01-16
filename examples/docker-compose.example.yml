@@ -1,5 +1,8 @@
 version: "3"
 
+# Required `.env` values for this example:
+# - ROMM_AUTH_SECRET_KEY=...            (used for RomM auth + internal Valkey)
+
 volumes:
   mysql_data:
   romm_resources:
@@ -10,17 +13,19 @@ services:
     image: rommapp/romm:latest
     container_name: romm
     restart: unless-stopped
-    extra_hosts:
-      # Needed on Linux if you want the container to reach a service running on the Docker host.
-      # Used by the nginx proxy rule for /assets/emulatorjs/* (docker/nginx/templates/default.conf.template).
-      - "host.docker.internal:host-gateway" # Needed for Docker setups
-      - "host.containers.internal:host-gateway" # needed for some Podman setups.
+    # extra_hosts: # Enable if hosting SFU elsewhere
+    #  - "host.docker.internal:host-gateway" # Required on Linux so the container can reach services running on the host
     environment:
+      # When running the SFU as part of this compose stack, use the service name.
+      # If hosting SFU elsewhere, change this to that host.
+      - SFU_HOST=romm-sfu
+      - SFU_PORT=3001 # mediasoup SFU port for netplay
       - DB_HOST=romm-db
       - DB_NAME=romm # Should match MARIADB_DATABASE in mariadb
       - DB_USER=romm-user # Should match MARIADB_USER in mariadb
       - DB_PASSWD= # Should match MARIADB_PASSWORD in mariadb
-      - ROMM_AUTH_SECRET_KEY= # Generate a key with `openssl rand -hex 32`
+      - ROMM_AUTH_SECRET_KEY=${ROMM_AUTH_SECRET_KEY:?set ROMM_AUTH_SECRET_KEY} # Generate with `openssl rand -hex 32`
+      - ROMM_SFU_INTERNAL_SECRET=${ROMM_SFU_INTERNAL_SECRET:?set ROMM_SFU_INTERNAL_SECRET} # Shared secret for SFU -> RomM internal API aut
       - SCREENSCRAPER_USER= # These are the recommended metadata providers
       - SCREENSCRAPER_PASSWORD= # https://docs.romm.app/latest/Getting-Started/Metadata-Providers/#screenscraper
       - RETROACHIEVEMENTS_API_KEY= # https://docs.romm.app/latest/Getting-Started/Metadata-Providers/#retroachievements
@@ -33,14 +38,42 @@ services:
       - /path/to/assets:/romm/assets # Uploaded saves, states, etc.
       - /path/to/config:/romm/config # (Optional) Path where config.yml is stored
     ports:
-      - 80:8080
+      - 80:8080 # hostport:containerport
     depends_on:
+      romm-sfu:
+        condition: service_started
       romm-db:
         condition: service_healthy
         restart: true
+    networks:
+      - romm
+
+  # EmulatorJS-SFU (mediasoup + socket.io)
+  # Build/publish this image separately (from the romm-sfu-server repo), then set image here.
+  # The key requirement is that this container shares the same Docker network as `romm`.
+  romm-sfu:
+    image: emulatorjs-sfu:latest
+    container_name: romm-sfu
+    restart: unless-stopped
+    environment:
+      # Reach RomM via docker DNS (service name)
+      - ROMM_API_BASE_URL=http://romm:8080
+      # Shared secret for SFU -> RomM internal API auth
+      - ROMM_SFU_INTERNAL_SECRET=${ROMM_SFU_INTERNAL_SECRET:?set ROMM_SFU_INTERNAL_SECRET}
+      # Ports (keep in sync with the published ports below)
+      - PORT=3001
+      - WEBRTC_PORT=20000
+      # If clients connect over the public internet, set this to your public IP/hostname.
+      # - ANNOUNCED_IP=
+    ports:
+      - "3001:3001/tcp"
+      - "20000:20000/udp"
+      - "20000:20000/tcp"
+    networks:
+      - romm
 
   romm-db:
-    image: mariadb:latest
+    image: docker.io/mariadb:latest
     container_name: romm-db
     restart: unless-stopped
     environment:
@@ -57,3 +90,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - romm
+
+networks:
+  romm:
+    name: romm
