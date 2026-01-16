@@ -645,9 +645,15 @@ async function boot() {
     });
   }
 
-  async function attemptLoad(label: "local" | "cdn") {
-    const path = label === "local" ? LOCAL_PATH : CDN_PATH;
-    loaderStatus.value = label === "local" ? "loading-local" : "loading-cdn";
+  async function attemptLoad(label: "configured" | "default-local" | "cdn") {
+    const path =
+      label === "configured"
+        ? CONFIGURED_LOCAL_PATH
+        : label === "default-local"
+        ? DEFAULT_LOCAL_PATH
+        : CDN_PATH;
+
+    loaderStatus.value = label === "cdn" ? "loading-cdn" : "loading-local";
 
     window.EJS_pathtodata = path;
 
