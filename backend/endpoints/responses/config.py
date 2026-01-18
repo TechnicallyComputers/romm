@@ -1,3 +1,4 @@
+from typing import Optional
 from typing import TypedDict
 
 from config.config_manager import EjsControls, NetplayICEServer
@@ -28,3 +29,5 @@ class ConfigResponse(TypedDict):
     SCAN_ARTWORK_PRIORITY: list[str]
     SCAN_REGION_PRIORITY: list[str]
     SCAN_LANGUAGE_PRIORITY: list[str]
+    SFU_HOST: str
+    SFU_PORT: int

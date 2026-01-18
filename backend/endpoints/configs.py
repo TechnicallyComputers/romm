@@ -7,6 +7,7 @@ from exceptions.config_exceptions import ConfigNotWritableException
 from handler.auth.constants import Scope
 from logger.logger import log
 from utils.router import APIRouter
+from os import getenv
 
 router = APIRouter(
     prefix="/config",
@@ -48,6 +49,9 @@ def get_config() -> ConfigResponse:
         SCAN_ARTWORK_PRIORITY=cfg.SCAN_ARTWORK_PRIORITY,
         SCAN_REGION_PRIORITY=cfg.SCAN_REGION_PRIORITY,
         SCAN_LANGUAGE_PRIORITY=cfg.SCAN_LANGUAGE_PRIORITY,
+        # Add SFU configuration
+        SFU_HOST=getenv("SFU_HOST", getenv("EMULATORJS_SFU_HOST", 'localhost')),
+        SFU_PORT=int(getenv('SFU_PORT', getenv('EMULATORJS_SFU_PORT', '3001'))),
     )
 
 
