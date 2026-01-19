@@ -57,6 +57,7 @@
   "no-tasks-in-history": "No tasks in history",
   "parent-platform": "Parent platform",
   "password": "Password",
+  "password-hint": "Password must be at least 6 characters long",
   "password-placeholder": "Leave empty to keep current password",
   "passwords-must-match": "Passwords must match",
   "platform-version": "Platform version",
@@ -148,6 +149,10 @@
   "theme-light": "Light",
   "update": "Update",
   "username": "Username",
+  "netplay-id": "Netplay ID",
+  "netplay-id-length": "Netplay ID must be between 3 and 32 characters",
+  "netplay-id-chars": "Netplay ID can only contain letters, numbers, emojis, symbols, underscores, and dashes",
+  "netplay-id-hint": "You must create a unique netplay ID to use netplay.",
   "virtual-collection-type": "Virtual collection type (ROM grouping method)",
   "watcher": "Watcher"
 }
